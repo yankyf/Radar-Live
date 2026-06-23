@@ -7,7 +7,7 @@ const FORECAST_PAUSE_MS = 1200;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 let map;
-let radarLayers = [];
+let radarOverlays = [];
 let frames = [];
 let currentFrame = 0;
 let playing = false;
@@ -27,30 +27,59 @@ const trackNow = document.getElementById("track-now");
 const trackForecast = document.getElementById("track-forecast");
 
 function initMap() {
-  map = L.map("map", {
-    center: [40.0, -3.0],
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: 40.0, lng: -3.0 },
     zoom: 5,
+    mapTypeId: "roadmap",
+    styles: [
+      { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+      { featureType: "administrative.country", elementType: "geometry.stroke", stylers: [{ color: "#4b6878" }] },
+      { featureType: "administrative.province", elementType: "geometry.stroke", stylers: [{ color: "#4b6878" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
+      { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#4e6d70" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#98a5be" }] },
+      { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2c6675" }] },
+      { featureType: "poi", elementType: "geometry", stylers: [{ color: "#283d6a" }] },
+      { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#6f9ba5" }] },
+      { featureType: "poi.park", elementType: "geometry.fill", stylers: [{ color: "#023e58" }] },
+      { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
+      { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+    ],
+    disableDefaultUI: false,
     zoomControl: true,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false,
   });
 
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-    attribution:
-      '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a> | Radar: <a href="https://www.rainviewer.com/">RainViewer</a>',
-    subdomains: "abcd",
-    maxZoom: 18,
-  }).addTo(map);
-
   tryGeolocate();
+  fetchRadarData();
 }
 
 function tryGeolocate() {
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      map.setView([pos.coords.latitude, pos.coords.longitude], 8);
+      map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      map.setZoom(8);
     },
     () => {}
   );
+}
+
+function createRadarOverlay(tilePath, opacity) {
+  const overlay = new google.maps.ImageMapType({
+    getTileUrl: function (coord, zoom) {
+      return `https://tilecache.rainviewer.com${tilePath}/${TILE_SIZE}/${zoom}/${coord.x}/${coord.y}/2/1_1.png`;
+    },
+    tileSize: new google.maps.Size(TILE_SIZE, TILE_SIZE),
+    opacity: opacity,
+    name: "radar",
+  });
+  return overlay;
 }
 
 async function fetchRadarData() {
@@ -61,7 +90,6 @@ async function fetchRadarData() {
   if (wasPlaying) stopPlay();
 
   frames = [];
-
   let pastCount = 0;
   let forecastCount = 0;
 
@@ -82,24 +110,17 @@ async function fetchRadarData() {
   if (frames.length === 0) return;
 
   firstForecastIndex = pastCount;
-
   updateTimelineTrack(pastCount, forecastCount);
 
-  radarLayers.forEach((layer) => {
-    if (map.hasLayer(layer)) map.removeLayer(layer);
+  radarOverlays.forEach((overlay) => {
+    map.overlayMapTypes.removeAt(0);
   });
-  radarLayers = [];
+  radarOverlays = [];
 
   frames.forEach((frame) => {
-    const layer = L.tileLayer(
-      `https://tilecache.rainviewer.com${frame.path}/${TILE_SIZE}/{z}/{x}/{y}/2/1_1.png`,
-      {
-        tileSize: TILE_SIZE,
-        opacity: 0,
-        zIndex: 5,
-      }
-    );
-    radarLayers.push(layer);
+    const opacity = frame.type === "forecast" ? FORECAST_OPACITY : RADAR_OPACITY;
+    const overlay = createRadarOverlay(frame.path, 0);
+    radarOverlays.push(overlay);
   });
 
   slider.max = frames.length - 1;
@@ -120,16 +141,14 @@ function updateTimelineTrack(pastCount, forecastCount) {
 function showFrame(index) {
   currentFrame = index;
 
-  radarLayers.forEach((layer, i) => {
-    if (i === index) {
-      if (!map.hasLayer(layer)) layer.addTo(map);
-      const opacity =
-        frames[i].type === "forecast" ? FORECAST_OPACITY : RADAR_OPACITY;
-      layer.setOpacity(opacity);
-    } else {
-      if (map.hasLayer(layer)) layer.setOpacity(0);
-    }
-  });
+  while (map.overlayMapTypes.getLength() > 0) {
+    map.overlayMapTypes.removeAt(0);
+  }
+
+  const frame = frames[index];
+  const opacity = frame.type === "forecast" ? FORECAST_OPACITY : RADAR_OPACITY;
+  const overlay = createRadarOverlay(frame.path, opacity);
+  map.overlayMapTypes.insertAt(0, overlay);
 
   slider.value = index;
   updateTimestamp(index);
@@ -173,21 +192,6 @@ function updateTimestamp(index) {
   } else {
     badgeEl.textContent = "Past";
     badgeEl.classList.add("past");
-  }
-}
-
-function nextFrame() {
-  const next = (currentFrame + 1) % frames.length;
-  showFrame(next);
-
-  if (playing && next === firstForecastIndex) {
-    clearInterval(playTimer);
-    playTimer = null;
-    setTimeout(() => {
-      if (playing) {
-        playTimer = setInterval(advanceFrame, PLAY_INTERVAL_MS);
-      }
-    }, FORECAST_PAUSE_MS);
   }
 }
 
@@ -254,14 +258,15 @@ btnPrev.addEventListener("click", () => {
 });
 btnNext.addEventListener("click", () => {
   stopPlay();
-  nextFrame();
+  advanceFrame();
 });
 btnForecast.addEventListener("click", skipToForecast);
 btnLocate.addEventListener("click", () => {
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      map.flyTo([pos.coords.latitude, pos.coords.longitude], 9);
+      map.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      map.setZoom(9);
     },
     () => {
       alert("Could not get your location. Please allow location access.");
@@ -272,7 +277,7 @@ btnLocate.addEventListener("click", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") {
     stopPlay();
-    nextFrame();
+    advanceFrame();
   } else if (e.key === "ArrowLeft") {
     stopPlay();
     prevFrame();
@@ -283,8 +288,5 @@ document.addEventListener("keydown", (e) => {
     skipToForecast();
   }
 });
-
-initMap();
-fetchRadarData();
 
 setInterval(fetchRadarData, REFRESH_INTERVAL_MS);
