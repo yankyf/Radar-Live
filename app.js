@@ -93,6 +93,9 @@ async function fetchRadarData() {
   let pastCount = 0;
   let forecastCount = 0;
 
+  let pastCount = 0;
+  let forecastCount = 0;
+
   if (data.radar && data.radar.past) {
     data.radar.past.forEach((f) => {
       frames.push({ path: f.path, time: f.time, type: "past" });
@@ -192,6 +195,21 @@ function updateTimestamp(index) {
   } else {
     badgeEl.textContent = "Past";
     badgeEl.classList.add("past");
+  }
+}
+
+function advanceFrame() {
+  const next = (currentFrame + 1) % frames.length;
+  showFrame(next);
+
+  if (playing && next === firstForecastIndex) {
+    clearInterval(playTimer);
+    playTimer = null;
+    setTimeout(() => {
+      if (playing) {
+        playTimer = setInterval(advanceFrame, PLAY_INTERVAL_MS);
+      }
+    }, FORECAST_PAUSE_MS);
   }
 }
 
