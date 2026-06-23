@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Radar Live — Weather Radar & Forecast</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="controls">
+    <div id="timestamp-bar">
+      <span id="timestamp">Loading radar data…</span>
+      <span id="badge"></span>
+    </div>
+    <div id="timeline">
+      <input type="range" id="slider" min="0" max="0" value="0" />
+    </div>
+    <div id="buttons">
+      <button id="btn-prev" title="Previous frame">⏮</button>
+      <button id="btn-play" title="Play / Pause">▶</button>
+      <button id="btn-next" title="Next frame">⏭</button>
+      <button id="btn-locate" title="Go to my location">📍</button>
+    </div>
+  </div>
+
+  <div id="legend">
+    <div class="legend-title">Rain intensity</div>
+    <div class="legend-bar"></div>
+    <div class="legend-labels">
+      <span>Light</span>
+      <span>Moderate</span>
+      <span>Heavy</span>
+      <span>Extreme</span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
