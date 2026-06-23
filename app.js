@@ -1,8 +1,9 @@
 const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
 const TILE_SIZE = 256;
-const RADAR_OPACITY = 0.55;
-const FORECAST_OPACITY = 0.45;
-const PLAY_INTERVAL_MS = 700;
+const RADAR_OPACITY = 0.6;
+const FORECAST_OPACITY = 0.5;
+const PLAY_INTERVAL_MS = 600;
+const FORECAST_PAUSE_MS = 1200;
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 let map;
@@ -11,6 +12,7 @@ let frames = [];
 let currentFrame = 0;
 let playing = false;
 let playTimer = null;
+let firstForecastIndex = -1;
 
 const slider = document.getElementById("slider");
 const timestampEl = document.getElementById("timestamp");
@@ -18,7 +20,11 @@ const badgeEl = document.getElementById("badge");
 const btnPlay = document.getElementById("btn-play");
 const btnPrev = document.getElementById("btn-prev");
 const btnNext = document.getElementById("btn-next");
+const btnForecast = document.getElementById("btn-forecast");
 const btnLocate = document.getElementById("btn-locate");
+const trackPast = document.getElementById("track-past");
+const trackNow = document.getElementById("track-now");
+const trackForecast = document.getElementById("track-forecast");
 
 function initMap() {
   map = L.map("map", {
@@ -51,21 +57,33 @@ async function fetchRadarData() {
   const res = await fetch(RAINVIEWER_API);
   const data = await res.json();
 
+  const wasPlaying = playing;
+  if (wasPlaying) stopPlay();
+
   frames = [];
+
+  let pastCount = 0;
+  let forecastCount = 0;
 
   if (data.radar && data.radar.past) {
     data.radar.past.forEach((f) => {
       frames.push({ path: f.path, time: f.time, type: "past" });
+      pastCount++;
     });
   }
 
   if (data.radar && data.radar.nowcast) {
     data.radar.nowcast.forEach((f) => {
       frames.push({ path: f.path, time: f.time, type: "forecast" });
+      forecastCount++;
     });
   }
 
   if (frames.length === 0) return;
+
+  firstForecastIndex = pastCount;
+
+  updateTimelineTrack(pastCount, forecastCount);
 
   radarLayers.forEach((layer) => {
     if (map.hasLayer(layer)) map.removeLayer(layer);
@@ -86,11 +104,17 @@ async function fetchRadarData() {
 
   slider.max = frames.length - 1;
 
-  const lastPastIndex = frames.reduce(
-    (acc, f, i) => (f.type === "past" ? i : acc),
-    0
-  );
+  const lastPastIndex = Math.max(0, pastCount - 1);
   showFrame(lastPastIndex);
+
+  setTimeout(() => startPlay(), 800);
+}
+
+function updateTimelineTrack(pastCount, forecastCount) {
+  const total = pastCount + 1 + forecastCount;
+  trackPast.style.width = `${(pastCount / total) * 100}%`;
+  trackNow.style.width = `${(1 / total) * 100}%`;
+  trackForecast.style.width = `${(forecastCount / total) * 100}%`;
 }
 
 function showFrame(index) {
@@ -141,7 +165,7 @@ function updateTimestamp(index) {
 
   badgeEl.className = "";
   if (frame.type === "forecast") {
-    badgeEl.textContent = "Forecast";
+    badgeEl.textContent = "Coming Soon";
     badgeEl.classList.add("forecast");
   } else if (Math.abs(diffMin) <= 2) {
     badgeEl.textContent = "Live";
@@ -155,6 +179,31 @@ function updateTimestamp(index) {
 function nextFrame() {
   const next = (currentFrame + 1) % frames.length;
   showFrame(next);
+
+  if (playing && next === firstForecastIndex) {
+    clearInterval(playTimer);
+    playTimer = null;
+    setTimeout(() => {
+      if (playing) {
+        playTimer = setInterval(advanceFrame, PLAY_INTERVAL_MS);
+      }
+    }, FORECAST_PAUSE_MS);
+  }
+}
+
+function advanceFrame() {
+  const next = (currentFrame + 1) % frames.length;
+  showFrame(next);
+
+  if (next === firstForecastIndex && playing) {
+    clearInterval(playTimer);
+    playTimer = null;
+    setTimeout(() => {
+      if (playing) {
+        playTimer = setInterval(advanceFrame, PLAY_INTERVAL_MS);
+      }
+    }, FORECAST_PAUSE_MS);
+  }
 }
 
 function prevFrame() {
@@ -173,7 +222,7 @@ function togglePlay() {
 function startPlay() {
   playing = true;
   btnPlay.textContent = "⏸";
-  playTimer = setInterval(nextFrame, PLAY_INTERVAL_MS);
+  playTimer = setInterval(advanceFrame, PLAY_INTERVAL_MS);
 }
 
 function stopPlay() {
@@ -182,6 +231,14 @@ function stopPlay() {
   if (playTimer) {
     clearInterval(playTimer);
     playTimer = null;
+  }
+}
+
+function skipToForecast() {
+  stopPlay();
+  if (firstForecastIndex >= 0 && firstForecastIndex < frames.length) {
+    showFrame(firstForecastIndex);
+    setTimeout(() => startPlay(), 300);
   }
 }
 
@@ -199,6 +256,7 @@ btnNext.addEventListener("click", () => {
   stopPlay();
   nextFrame();
 });
+btnForecast.addEventListener("click", skipToForecast);
 btnLocate.addEventListener("click", () => {
   if (!navigator.geolocation) return;
   navigator.geolocation.getCurrentPosition(
@@ -221,6 +279,8 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === " ") {
     e.preventDefault();
     togglePlay();
+  } else if (e.key === "f" || e.key === "F") {
+    skipToForecast();
   }
 });
 
